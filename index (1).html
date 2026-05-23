@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="theme-color" content="#0d0d0d">
+<title>Oswald Carousel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@700&family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+<!-- React + Babel (no build step needed) -->
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html,body,#root{height:100%;background:#0d0d0d}
+  body{-webkit-text-size-adjust:100%}
+  canvas{image-rendering:auto}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useRef, useEffect, useCallback } = React;
+
+const THEMES = {
+  cream:         { bg:"#f5f0e8", grad:null,               text:"#111", accent:"#c0392b", body:"#666", muted:"rgba(17,17,17,.4)"    },
+  "dark-minimal":{ bg:"#001a0f", grad:["#001a0f","#002a1a"], text:"#fff", accent:"#4fffb0", body:"#5a8a6a", muted:"rgba(255,255,255,.35)" },
+  "dark-purple": { bg:"#0d0d0d", grad:["#0d0d0d","#1a1a2e"], text:"#fff", accent:"#a78bfa", body:"#888",    muted:"rgba(255,255,255,.35)" },
+  "dark-magenta":{ bg:"#0a0a0a", grad:["#0a0a0a","#1a0a1a"], text:"#fff", accent:"#ff6fff", body:"#776677", muted:"rgba(255,255,255,.35)" },
+};
+
+function drawSlide(canvas, slide, idx, total, themeName, scale, fontsLoaded) {
+  const W = 270 * scale, H = 338 * scale;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  const T   = THEMES[themeName] || THEMES.cream;
+  const OF  = fontsLoaded ? "Outfit," : "";
+  const OSW = fontsLoaded ? "Oswald," : "";
+  ctx.textBaseline = "top";
+
+  if (T.grad) {
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,T.grad[0]); g.addColorStop(1,T.grad[1]);
+    ctx.fillStyle = g;
+  } else { ctx.fillStyle = T.bg; }
+  ctx.fillRect(0,0,W,H);
+
+  const ag = ctx.createLinearGradient(0,0,W*0.55,0);
+  ag.addColorStop(0,T.accent); ag.addColorStop(1,"rgba(0,0,0,0)");
+  ctx.fillStyle = ag;
+  ctx.fillRect(0,H-3*scale,W,3*scale);
+
+  const pad = n => String(n).padStart(2,"0");
+  const splitLines = s => (s||"").replace(/\\n/g,"\n").split("\n");
+  function wrap(txt,maxW) {
+    const words=(txt||"").split(" "); const out=[]; let cur="";
+    for(const w of words){const t=cur?cur+" "+w:w;if(ctx.measureText(t).width>maxW&&cur){out.push(cur);cur=w;}else cur=t;}
+    if(cur)out.push(cur); return out.length?out:[""];
+  }
+
+  const MARGIN=20*scale, SIDE_W=18*scale;
+  const CX=MARGIN+SIDE_W+4*scale, CW=W-CX-MARGIN;
+  const NUM_SZ=10*scale, NUM_TOP=MARGIN, NUM_BOT=NUM_TOP+NUM_SZ+4*scale;
+
+  ctx.font=`700 ${NUM_SZ}px ${OSW}sans-serif`;
+  ctx.fillStyle=T.muted; ctx.textAlign="right";
+  ctx.fillText(`${pad(idx+1)} / ${pad(total)}`,W-MARGIN,NUM_TOP);
+
+  const brand=(slide.brand||"Brand").toUpperCase();
+  ctx.save();
+  ctx.translate(MARGIN+SIDE_W*0.5,H*0.5); ctx.rotate(-Math.PI/2);
+  ctx.font=`300 ${7*scale}px ${OF}sans-serif`;
+  ctx.fillStyle=T.muted; ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.fillText(brand,0,0);
+  ctx.restore();
+  ctx.textBaseline="top"; ctx.textAlign="left";
+
+  let y=NUM_BOT+18*scale;
+  const EYE_SZ=8*scale;
+  if(slide.eyebrow){
+    ctx.font=`400 ${EYE_SZ}px ${OF}sans-serif`;
+    ctx.fillStyle=T.accent; ctx.globalAlpha=0.8;
+    ctx.fillText(slide.eyebrow.toUpperCase(),CX,y);
+    ctx.globalAlpha=1; y+=EYE_SZ+10*scale;
+  }
+
+  const TITLE_SZ=27*scale;
+  ctx.font=`700 ${TITLE_SZ}px ${OSW}sans-serif`;
+  ctx.fillStyle=T.text;
+  for(const ln of splitLines(slide.title||"TITLE")){
+    ctx.fillText(ln.toUpperCase(),CX,y); y+=TITLE_SZ*1.05;
+  }
+  y+=10*scale;
+
+  if(slide.subtitle){
+    const SUB_SZ=9.5*scale;
+    ctx.font=`600 ${SUB_SZ}px ${OF}sans-serif`;
+    ctx.fillStyle=T.accent;
+    for(const ln of wrap(slide.subtitle,CW)){ctx.fillText(ln,CX,y);y+=SUB_SZ+4*scale;}
+    y+=4*scale;
+  }
+
+  if(slide.body){
+    const BODY_SZ=8.5*scale;
+    ctx.font=`300 ${BODY_SZ}px ${OF}sans-serif`;
+    ctx.fillStyle=T.body;
+    for(const raw of splitLines(slide.body)){
+      for(const ln of wrap(raw,CW)){ctx.fillText(ln,CX,y);y+=BODY_SZ+4*scale;}
+    }
+  }
+
+  const BAR_SZ=8*scale, BAR_Y=H-MARGIN-BAR_SZ-6*scale;
+  ctx.font=`300 ${BAR_SZ}px ${OF}sans-serif`;
+  ctx.fillStyle=T.muted; ctx.textAlign="left";
+  ctx.fillText((slide.cta||"swipe to continue").toUpperCase(),CX,BAR_Y);
+
+  const isCTA=slide.type==="cta";
+  const CR=14*scale, ICX=W-MARGIN-CR, ICY=BAR_Y+BAR_SZ*0.5;
+  ctx.beginPath(); ctx.arc(ICX,ICY,CR,0,Math.PI*2);
+  ctx.strokeStyle=T.accent; ctx.lineWidth=1.5*scale; ctx.stroke();
+  ctx.font=`${Math.round(14*scale)}px ${OF}sans-serif`;
+  ctx.fillStyle=T.accent; ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.fillText(isCTA?"♡":"→",ICX,ICY+scale);
+}
+
+function SlideCanvas({slide,idx,total,theme,scale,fontsReady,onClick,active}){
+  const ref=useRef(null);
+  useEffect(()=>{if(ref.current)drawSlide(ref.current,slide,idx,total,theme,scale,fontsReady);});
+  return(
+    <canvas ref={ref} onClick={onClick} style={{
+      display:"block", borderRadius:scale<=0.3?3:8,
+      cursor:onClick?"pointer":"default",
+      outline:active?"2px solid #c0392b":"none",
+      opacity:active===false?0.5:1, flexShrink:0,
+    }}/>
+  );
+}
+
+const SAMPLE={
+  theme:"cream",brand:"Your Brand",
+  slides:[
+    {type:"hook",    eyebrow:"welcome",  title:"PASTE YOUR\nJSON\nTO START",subtitle:"Generate content in Claude, paste here.",body:"Tap 'How to use' below\nfor the prompt template.",cta:"swipe to continue"},
+    {type:"content", eyebrow:"step 01", title:"GENERATE\nCONTENT",          subtitle:"Use the prompt template in Claude.",    body:"Copy the JSON output\nClaude gives you.",          cta:"swipe to continue"},
+    {type:"content", eyebrow:"step 02", title:"LOAD\n& PREVIEW",            subtitle:"Tap Load Slides to render.",            body:"Swipe through the preview\nto check each slide.",   cta:"swipe to continue"},
+    {type:"cta",     eyebrow:"step 03", title:"EXPORT\n& SAVE",             subtitle:"Download ZIP or save each slide.",      body:"",                                                  cta:"download or long-press"},
+  ],
+};
+
+const PROMPT=`Generate a carousel post about [YOUR TOPIC].
+
+Output ONLY valid JSON, nothing else before or after:
+
+{
+  "theme": "cream",
+  "brand": "Your Brand",
+  "slides": [
+    {
+      "type": "hook",
+      "eyebrow": "short label",
+      "title": "BIG BOLD\\\\nTITLE LINE",
+      "subtitle": "One-line expansion of the promise",
+      "body": "2–3 lines of body.\\\\nSecond line.",
+      "cta": "swipe to continue"
+    },
+    {
+      "type": "content",
+      "eyebrow": "point 01",
+      "title": "SHORT\\\\nPOINT",
+      "subtitle": "Expand in one line",
+      "body": "2–3 lines.\\\\nBe specific.",
+      "cta": "swipe to continue"
+    },
+    {
+      "type": "cta",
+      "eyebrow": "take action",
+      "title": "SAVE\\\\nTHIS",
+      "subtitle": "One reason to save",
+      "body": "",
+      "cta": "save this post"
+    }
+  ]
+}
+
+Rules:
+- 5–8 slides. First = hook. Last = cta.
+- title: UPPERCASE, use \\\\n for line breaks, max 3 lines, max 5 words per line
+- body: max 3 lines, use \\\\n between lines. Empty string "" for cta slide.
+- theme: "cream" / "dark-minimal" / "dark-purple" / "dark-magenta"
+- type: "hook" / "content" / "list" / "cta"`;
+
+function App(){
+  const [input,setInput]=useState("");
+  const [data,setData]=useState(SAMPLE);
+  const [activeIdx,setActiveIdx]=useState(0);
+  const [fontsReady,setFontsReady]=useState(false);
+  const [error,setError]=useState("");
+  const [exporting,setExporting]=useState(false);
+  const [progress,setProgress]=useState(0);
+  const [saveURLs,setSaveURLs]=useState([]);
+  const [zipURL,setZipURL]=useState(null);
+  const [showTip,setShowTip]=useState(false);
+
+  useEffect(()=>{ document.fonts.ready.then(()=>setFontsReady(true)); },[]);
+
+  const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent);
+  const slides=data.slides||[];
+  const theme=data.theme||"cream";
+  const brand=data.brand||"Brand";
+  const decorated=slides.map(s=>({...s,brand}));
+  const total=decorated.length;
+  const activeSlide=decorated[Math.min(activeIdx,total-1)];
+
+  function loadSlides(){
+    setError("");
+    const raw=input.trim();
+    if(!raw){setError("Nothing pasted yet.");return;}
+    try{
+      const p=JSON.parse(raw);
+      if(!Array.isArray(p.slides)||p.slides.length===0)throw new Error("no slides");
+      setData(p);setActiveIdx(0);setSaveURLs([]);setZipURL(null);setInput("");
+    }catch{setError("Couldn't parse that JSON. Paste the exact block Claude outputs — no extra text.");}
+  }
+
+  const doExport=useCallback(async()=>{
+    setExporting(true);setProgress(0);setSaveURLs([]);
+    if(zipURL){URL.revokeObjectURL(zipURL);setZipURL(null);}
+    const off=document.createElement("canvas");
+    const urls=[];
+    for(let i=0;i<total;i++){
+      await new Promise(r=>setTimeout(r,25));
+      drawSlide(off,decorated[i],i,total,theme,4,fontsReady);
+      urls.push(off.toDataURL("image/png"));
+      setProgress(Math.round(((i+1)/total)*90));
+    }
+    setProgress(94);
+    try{
+      const zip=new JSZip();
+      urls.forEach((url,i)=>{
+        zip.file(`slide_${String(i+1).padStart(2,"0")}_1080x1350.png`,url.split(",")[1],{base64:true});
+      });
+      const blob=await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:3}});
+      setZipURL(URL.createObjectURL(blob));
+    }catch(e){console.warn("ZIP failed",e);}
+    setSaveURLs(urls);setProgress(100);setExporting(false);
+  },[decorated,total,theme,fontsReady,zipURL]);
+
+  const c={
+    wrap:{minHeight:"100vh",background:"#0d0d0d",color:"#ddd",fontFamily:"'Outfit',sans-serif",paddingBottom:60},
+    hdr:{background:"#090909",borderBottom:"1px solid #1c1c1c",padding:"12px 16px",display:"flex",alignItems:"center",gap:10},
+    logo:{fontFamily:"'Oswald',sans-serif",fontWeight:700,fontSize:15,letterSpacing:".12em",textTransform:"uppercase",color:"#c0392b",marginRight:"auto"},
+    badge:{fontSize:10,color:"#383838",letterSpacing:".08em",textTransform:"uppercase"},
+    sec:{padding:"14px 16px 0"},
+    lbl:{display:"block",fontSize:10,fontWeight:600,letterSpacing:".1em",textTransform:"uppercase",color:"#3a3a3a",marginBottom:7},
+    divider:{height:1,background:"#181818",margin:"16px 0 0"},
+    ta:{width:"100%",minHeight:90,background:"#0e0e0e",border:"1px solid #252525",borderRadius:7,color:"#bbb",fontFamily:"monospace",fontSize:12,padding:"10px 12px",resize:"vertical",outline:"none",lineHeight:1.5},
+    row:{display:"flex",gap:8,marginTop:8},
+    red:{flex:1,background:"#c0392b",color:"#fff",border:"none",borderRadius:7,padding:"11px 16px",fontFamily:"'Outfit',sans-serif",fontSize:12,fontWeight:600,textTransform:"uppercase",letterSpacing:".07em",cursor:"pointer",WebkitTapHighlightColor:"transparent",touchAction:"manipulation"},
+    ghost:{background:"transparent",color:"#555",border:"1px solid #282828",borderRadius:7,padding:"11px 14px",fontFamily:"'Outfit',sans-serif",fontSize:12,fontWeight:600,textTransform:"uppercase",letterSpacing:".07em",cursor:"pointer",WebkitTapHighlightColor:"transparent",touchAction:"manipulation"},
+    err:{fontSize:12,color:"#e74c3c",background:"#180808",border:"1px solid #350d0d",borderRadius:6,padding:"8px 12px",marginTop:8,lineHeight:1.5},
+    prvWrap:{display:"flex",flexDirection:"column",alignItems:"center",padding:"16px 16px 0",gap:10},
+    prvLbl:{fontSize:10,color:"#333",letterSpacing:".1em",textTransform:"uppercase",alignSelf:"flex-start"},
+    shadow:{boxShadow:"0 6px 30px rgba(0,0,0,.7)",borderRadius:9},
+    navRow:{display:"flex",alignItems:"center",gap:14,width:"100%",justifyContent:"center"},
+    navBtn:{background:"#141414",border:"1px solid #252525",borderRadius:6,color:"#666",width:38,height:38,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,cursor:"pointer",touchAction:"manipulation",WebkitTapHighlightColor:"transparent",userSelect:"none"},
+    ctr:{fontSize:12,color:"#3a3a3a",letterSpacing:".06em",minWidth:48,textAlign:"center"},
+    mini:{display:"flex",gap:7,overflowX:"auto",padding:"2px 0 8px",width:"100%",WebkitOverflowScrolling:"touch"},
+    progWrap:{background:"#141414",borderRadius:3,height:4,overflow:"hidden",marginTop:8},
+    progBar:{height:"100%",background:"#c0392b",transition:"width .2s",borderRadius:3},
+    tipBox:{background:"#0a0a0a",border:"1px solid #1a1a1a",borderRadius:8,padding:"14px",marginTop:12},
+    code:{display:"block",background:"#101010",border:"1px solid #1e1e1e",borderRadius:5,padding:"10px 12px",fontSize:11,color:"#666",fontFamily:"monospace",whiteSpace:"pre-wrap",wordBreak:"break-word",marginTop:8,lineHeight:1.6},
+    saveCard:{background:"#0e0e0e",border:"1px solid #1e1e1e",borderRadius:9,overflow:"hidden",marginBottom:10},
+    saveImg:{width:"100%",display:"block"},
+    saveLbl:{padding:"10px 12px",display:"flex",alignItems:"center",justifyContent:"space-between"},
+    saveNum:{fontFamily:"'Oswald',sans-serif",fontSize:12,fontWeight:700,color:"#c0392b",letterSpacing:".08em"},
+    saveTip:{fontSize:11,color:"#3a3a3a",textTransform:"uppercase",letterSpacing:".06em"},
+  };
+
+  return(
+    <div style={c.wrap}>
+      <div style={c.hdr}>
+        <div style={c.logo}>Oswald Carousel</div>
+        <div style={c.badge}>1080 × 1350 · IG 4:5</div>
+      </div>
+
+      <div style={c.sec}>
+        <span style={c.lbl}>Paste JSON from Claude</span>
+        <textarea style={c.ta} value={input} onChange={e=>setInput(e.target.value)}
+          placeholder={'{\n  "theme": "cream",\n  "brand": "Your Brand",\n  "slides": [...]\n}'}
+          spellCheck={false} autoCorrect="off" autoCapitalize="off"/>
+        <div style={c.row}>
+          <button style={c.red} onClick={loadSlides}>Load Slides</button>
+          <button style={c.ghost} onClick={()=>setShowTip(v=>!v)}>{showTip?"Close":"How to use"}</button>
+        </div>
+        {error&&<div style={c.err}>{error}</div>}
+      </div>
+
+      {showTip&&(
+        <div style={{padding:"0 16px"}}>
+          <div style={c.tipBox}>
+            <span style={{fontSize:11,color:"#555",lineHeight:1.7}}>
+              1. Copy this prompt → paste into a <strong style={{color:"#888"}}>new Claude chat</strong> → replace [YOUR TOPIC]
+            </span>
+            <code style={c.code}>{PROMPT}</code>
+            <span style={{display:"block",marginTop:10,fontSize:11,color:"#444",lineHeight:1.7}}>
+              2. Copy the JSON Claude outputs → paste above → tap Load Slides<br/>
+              3. Tap Export → Download ZIP or long-press each image to save
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div style={c.divider}/>
+
+      <div style={c.prvWrap}>
+        <span style={c.prvLbl}>Preview — slide {activeIdx+1} of {total}</span>
+        <div style={c.shadow}>
+          <SlideCanvas slide={activeSlide} idx={activeIdx} total={total}
+            theme={theme} scale={1} fontsReady={fontsReady}/>
+        </div>
+        <div style={c.navRow}>
+          <div style={{...c.navBtn,opacity:activeIdx===0?0.25:1}}
+            onClick={()=>setActiveIdx(i=>Math.max(0,i-1))}>‹</div>
+          <span style={c.ctr}>{String(activeIdx+1).padStart(2,"0")} / {String(total).padStart(2,"0")}</span>
+          <div style={{...c.navBtn,opacity:activeIdx===total-1?0.25:1}}
+            onClick={()=>setActiveIdx(i=>Math.min(total-1,i+1))}>›</div>
+        </div>
+        <div style={c.mini}>
+          {decorated.map((sl,i)=>(
+            <SlideCanvas key={i} slide={sl} idx={i} total={total}
+              theme={theme} scale={0.25} fontsReady={fontsReady}
+              onClick={()=>setActiveIdx(i)} active={i===activeIdx}/>
+          ))}
+        </div>
+      </div>
+
+      <div style={c.divider}/>
+
+      <div style={c.sec}>
+        <span style={c.lbl}>Export slides</span>
+
+        {saveURLs.length===0&&(
+          <button style={{...c.red,flex:"none",width:"100%",padding:"13px 16px",fontSize:13}}
+            onClick={doExport} disabled={exporting}>
+            {exporting?`Rendering… ${progress}%`:`Export ${total} slides at 1080×1350px`}
+          </button>
+        )}
+        {exporting&&(
+          <div style={c.progWrap}><div style={{...c.progBar,width:`${progress}%`}}/></div>
+        )}
+
+        {saveURLs.length>0&&(
+          <>
+            {zipURL&&(
+              <a href={zipURL} download={`carousel_${total}slides.zip`}
+                style={{...c.red,display:"block",textAlign:"center",textDecoration:"none",
+                  width:"100%",padding:"13px 16px",fontSize:13,marginBottom:10,boxSizing:"border-box"}}>
+                ⬇ Download ZIP — {total} PNGs
+              </a>
+            )}
+            {isIOS&&(
+              <div style={{fontSize:11,color:"#444",lineHeight:1.7,margin:"4px 0 10px",padding:"10px 12px",background:"#0a0a0a",border:"1px solid #1a1a1a",borderRadius:6}}>
+                <strong style={{color:"#888"}}>iPhone:</strong> If ZIP doesn't go to Files,
+                <strong style={{color:"#888"}}> long-press each image below</strong> → "Save to Photos." Saves at full 1080×1350px.
+              </div>
+            )}
+            <div>
+              {saveURLs.map((url,i)=>(
+                <div key={i} style={c.saveCard}>
+                  <img src={url} alt={`Slide ${i+1}`} style={c.saveImg} draggable={false}/>
+                  <div style={c.saveLbl}>
+                    <span style={c.saveNum}>SLIDE {String(i+1).padStart(2,"0")}</span>
+                    {!isIOS
+                      ?<a href={url} download={`slide_${String(i+1).padStart(2,"0")}_1080x1350.png`}
+                          style={{...c.saveTip,textDecoration:"underline",color:"#888"}}>Save PNG</a>
+                      :<span style={c.saveTip}>Long-press → Save</span>
+                    }
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button style={{...c.ghost,width:"100%",marginTop:6}}
+              onClick={()=>{setSaveURLs([]);setProgress(0);if(zipURL){URL.revokeObjectURL(zipURL);setZipURL(null);}}}>
+              Re-export
+            </button>
+          </>
+        )}
+        <div style={{marginTop:12,fontSize:11,color:"#2a2a2a",lineHeight:1.6}}>
+          Each PNG: 1080×1350px · Instagram 4:5 portrait
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const root=ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App/>);
+</script>
+</body>
+</html>
